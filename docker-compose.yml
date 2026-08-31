@@ -1,0 +1,24 @@
+# Base vectorielle Qdrant, en local.
+#   Démarrer : docker compose up -d
+#   Interface web (tableau de bord) : http://localhost:6343/dashboard
+#
+# Note : on expose le port 6343 (et non le 6333 par défaut de Qdrant) car une
+# autre instance Qdrant occupe déjà le 6333 sur cette machine. Ce projet a ainsi
+# sa propre base, isolée. Pour revenir au port standard, remplacez "6343:6333"
+# par "6333:6333" ici et ajustez QDRANT_URL dans le fichier .env.
+services:
+  qdrant:
+    # Version figée et alignée sur celle du client `qdrant-client` (requirements.txt) :
+    # le client refuse un écart de version majeure et prévient au-delà d'une mineure.
+    image: qdrant/qdrant:v1.19.0
+    container_name: rag-qdrant
+    ports:
+      - "6343:6333"   # API REST
+      - "6344:6334"   # API gRPC
+    volumes:
+      # Les données survivent au redémarrage du conteneur.
+      - qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+volumes:
+  qdrant_storage:
