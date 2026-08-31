@@ -70,23 +70,25 @@ with st.sidebar:
         st.rerun()
 
 #-----------
-    monbouton = st.button("Cliquezzz")
-    with monbouton:
-        from pathlib import Path
-        chemin = Path("./EnterpriseRAG-bench")
-        nombre_files = len(list(chemin.rglob("*.txt")))
-        progress = st.progress(0.0)
-        i=0
-        for fichier in chemin.rglob("*.txt"):
-            destination = data_dir / fichier.name
-            destination.write_bytes(fichier.getbuffer())
-            try:
-                nb_chunks = pipeline.ingest_file(destination)
-                st.success(f"{fichier.name} : {nb_chunks} chunk(s)")
-            except Exception as error:  # noqa: BLE001
-                st.error(f"{uploaded.name} : {error}")
-            i+=1
-        progress.progress(i / nombre_files)
+    # Ingestion en masse du corpus de benchmark posé à côté du projet.
+    if st.button("Indexer EnterpriseRAG-bench", use_container_width=True):
+        corpus = Path("./EnterpriseRAG-bench")
+        fichiers = sorted(corpus.rglob("*.txt"))
+
+        if not fichiers:
+            st.warning(f"Aucun fichier .txt trouvé dans {corpus.resolve()}.")
+        else:
+            progress = st.progress(0.0)
+            for position, fichier in enumerate(fichiers, start=1):
+                destination = data_dir / fichier.name
+                destination.write_bytes(fichier.read_bytes())
+                try:
+                    nb_chunks = pipeline.ingest_file(destination)
+                    st.success(f"{fichier.name} : {nb_chunks} chunk(s)")
+                except Exception as error:  # noqa: BLE001
+                    st.error(f"{fichier.name} : {error}")
+                progress.progress(position / len(fichiers))
+            st.rerun()
 
 #-----------
 
