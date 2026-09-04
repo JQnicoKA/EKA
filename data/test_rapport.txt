@@ -1,0 +1,31 @@
+Rapport d'activité 2024 — Direction technique
+
+## Résumé
+L'année 2024 a été marquée par la mise en production de la plateforme d'inférence
+et par la refonte du socle de données. Le chiffre d'affaires atteint 4,2 M€,
+en progression de 18 % par rapport à 2023.
+
+## Budget
+Le budget de la direction technique s'élève à 1,35 M€ pour 2024, réparti ainsi :
+
+- Infrastructure et hébergement : 520 k€
+- Salaires et prestations : 610 k€
+- Licences et outillage : 220 k€
+
+Le dépassement constaté au premier semestre (+7 %) a été absorbé par le gel des
+recrutements au second semestre.
+
+## Architecture
+### Backend
+Le backend est écrit en Python 3.11 et s'appuie sur FastAPI. Les traitements longs
+sont délégués à une file Redis, ce qui a divisé par trois la latence perçue sur les
+endpoints de génération.
+
+### Stockage
+Les vecteurs sont stockés dans Qdrant, les documents sources dans un bucket S3
+chiffré. La rétention est fixée à 13 mois.
+
+## Conclusions
+Les objectifs 2024 sont atteints sur le périmètre technique. Deux risques restent
+ouverts : la dépendance à un fournisseur unique pour les GPU, et la dette de test
+sur le module de facturation.

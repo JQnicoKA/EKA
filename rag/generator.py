@@ -96,5 +96,9 @@ class MistralGenerator(AnswerGenerator):
         blocs = []
         for position, result in enumerate(contexts, start=1):
             chunk = result.chunk
-            blocs.append(f"[{position}] Source : {chunk.reference}\n{chunk.text}")
+            entete = f"[{position}] Source : {chunk.reference}"
+            if chunk.section:
+                # La hiérarchie vient des titres du document : elle situe l'extrait.
+                entete += f" — Section : {chunk.section}"
+            blocs.append(f"{entete}\n{chunk.text}")
         return "\n\n".join(blocs)

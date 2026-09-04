@@ -1,8 +1,10 @@
 """Test de bout en bout du pipeline SANS appeler l'API Mistral.
 
-On remplace l'embedder et le générateur par de faux composants déterministes :
-cela valide toute la plomberie (PDF -> chunks -> Qdrant -> recherche -> prompt)
-sans consommer de crédits API. À supprimer une fois le projet en main.
+On remplace le planner, l'embedder et le générateur par de faux composants
+déterministes : cela valide toute la plomberie (texte -> blocs -> plan -> validation
+-> chunks -> Qdrant -> recherche -> prompt) sans consommer de crédits API.
+
+L'étage Qdrant est ignoré si le serveur n'est pas joignable.
 
 Lancement :  python smoke_test.py
 """
@@ -13,17 +15,19 @@ import hashlib
 import logging
 from pathlib import Path
 
-from rag.chunker import TextChunker
 from rag.embedder import Embedder
 from rag.generator import AnswerGenerator, MistralGenerator
-from rag.loader import PDFLoader
 from rag.models import RetrievedChunk
+from rag.parser import TextParser
 from rag.pipeline import RAGPipeline
+from rag.planner import HeuristicChunkPlanner
+from rag.semantic_chunker import SemanticChunker
 from rag.vector_store import QdrantVectorStore
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
 DIMENSION = 64
+DOCUMENT = Path("data/test_rapport.txt")
 
 
 class FakeEmbedder(Embedder):
@@ -45,7 +49,7 @@ class FakeEmbedder(Embedder):
         for word in text.lower().split():
             digest = hashlib.md5(word.encode()).digest()
             vector[digest[0] % DIMENSION] += 1.0
-        return vector or [0.0] * DIMENSION
+        return vector
 
 
 class FakeGenerator(AnswerGenerator):
@@ -56,46 +60,91 @@ class FakeGenerator(AnswerGenerator):
         return f"[FAUSSE RÉPONSE]\nPrompt qui serait envoyé au LLM :\n\n{prompt[:600]}"
 
 
-def main() -> None:
+def chunking_hors_ligne() -> None:
+    """Étapes 1 à 4 : parsing, plan déterministe, validation, reconstruction."""
+    parser = TextParser(max_block_chars=800)
+    document = parser.parse(DOCUMENT)
+
+    print("\n=== 1. Parsing ===")
+    print(f"{document.source} : {len(document.blocks)} blocs "
+          f"({len(document.indexable_blocks)} indexables)")
+    for block in document.blocks[:6]:
+        extrait = " ".join(block.text.split())[:60]
+        print(f"  {block.block_id} {block.type:10s} l.{block.line_start:<3d} « {extrait} »")
+
+    chunker = SemanticChunker(
+        planner=HeuristicChunkPlanner(target_chunk_chars=700, max_chunk_chars=1200),
+        max_chunk_chars=1200,
+    )
+    chunks = chunker.chunk(document)
+
+    print("\n=== 2. Plan validé + reconstruction ===")
+    for chunk in chunks:
+        extrait = " ".join(chunk.text.split())[:70]
+        print(f"  {chunk.chunk_id} {chunk.reference:32s} {len(chunk.text):5d} car. "
+              f"| {chunk.section or '(racine)'}")
+        print(f"      blocs {', '.join(chunk.block_ids)} — « {extrait}... »")
+
+    print("\n=== 3. Contrôles de fidélité ===")
+    vus = [bid for chunk in chunks for bid in chunk.block_ids]
+    attendus = [b.block_id for b in document.indexable_blocks]
+    assert vus == attendus, "couverture ou ordre incorrects"
+    for chunk in chunks:
+        for block_id in chunk.block_ids:
+            block = document.by_id()[block_id]
+            assert block.text in chunk.text
+            assert document.text[block.char_start:block.char_end] == block.text
+    print(f"  couverture 100 % ({len(attendus)} blocs), ordre conservé, "
+          "texte identique au document.")
+
+
+def bout_en_bout() -> None:
+    """Étapes 5 à 7 : stockage, recherche, prompt (nécessite Qdrant)."""
+    try:
+        store = QdrantVectorStore(
+            url="http://localhost:6343", collection_name="smoke_test", vector_size=DIMENSION
+        )
+    except RuntimeError as error:
+        print(f"\n=== 4. Qdrant indisponible — étage ignoré ===\n  {error}")
+        return
+
     pipeline = RAGPipeline(
-        loader=PDFLoader(),
-        chunker=TextChunker(chunk_size=300, chunk_overlap=50),
-        embedder=FakeEmbedder(),
-        vector_store=QdrantVectorStore(
-            url="http://localhost:6343",
-            collection_name="smoke_test",
-            vector_size=DIMENSION,
+        parser=TextParser(max_block_chars=800),
+        chunker=SemanticChunker(
+            planner=HeuristicChunkPlanner(target_chunk_chars=700, max_chunk_chars=1200),
+            max_chunk_chars=1200,
         ),
+        embedder=FakeEmbedder(),
+        vector_store=store,
         generator=FakeGenerator(),
         top_k=2,
     )
 
-    print("\n=== 1. Ingestion ===")
-    nb = pipeline.ingest_file(Path("data/test_rapport.pdf"))
-    print(f"chunks indexés : {nb}")
+    print("\n=== 4. Ingestion ===")
+    print("chunks indexés :", pipeline.ingest_file(DOCUMENT))
+    print("documents :", store.list_sources(), "| chunks :", store.count())
 
-    print("\n=== 2. État de la base ===")
-    print("documents :", pipeline.vector_store.list_sources())
-    print("chunks    :", pipeline.vector_store.count())
+    print("\n=== 5. Idempotence (ré-ingestion) ===")
+    pipeline.ingest_file(DOCUMENT)
+    print("chunks après ré-ingestion :", store.count(), "(doit être identique)")
 
-    print("\n=== 3. Idempotence (ré-ingestion) ===")
-    pipeline.ingest_file(Path("data/test_rapport.pdf"))
-    print("chunks après ré-ingestion :", pipeline.vector_store.count(), "(doit être identique)")
-
-    print("\n=== 4. Question ===")
-    answer = pipeline.ask("Quel est le chiffre d affaires ?")
+    print("\n=== 6. Question ===")
+    answer = pipeline.ask("Quel est le budget de la direction technique ?")
     print(answer.text)
-    print("\nSources :")
-    for i, result in enumerate(answer.sources, start=1):
-        print(f"  [{i}] {result.chunk.reference} — score {result.score:.3f}")
+    for position, result in enumerate(answer.sources, start=1):
+        print(f"  [{position}] {result.chunk.reference} — score {result.score:.3f}")
 
-    print("\n=== 5. Nettoyage ===")
-    pipeline.vector_store.delete_source("test_rapport.pdf")
-    print("chunks après suppression :", pipeline.vector_store.count())
-    pipeline.vector_store._client.delete_collection("smoke_test")
+    print("\n=== 7. Nettoyage ===")
+    store.delete_source(DOCUMENT.name)
+    print("chunks après suppression :", store.count())
+    store._client.delete_collection("smoke_test")
     print("collection de test supprimée.")
 
-    print("\n✅ Pipeline fonctionnel de bout en bout.")
+
+def main() -> None:
+    chunking_hors_ligne()
+    bout_en_bout()
+    print("\n✅ Pipeline fonctionnel.")
 
 
 if __name__ == "__main__":

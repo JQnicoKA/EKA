@@ -6,7 +6,7 @@ Qdrant stocke des "points". Chaque point contient :
   - un `payload` : les métadonnées, ici le texte du chunk et sa provenance.
 
 C'est ce payload qui permet, après la recherche, de reconstruire le chunk et
-d'afficher la référence (document + page) à l'utilisateur.
+d'afficher la référence (document + lignes) et de remonter aux blocs sources.
 """
 
 from __future__ import annotations
@@ -43,6 +43,14 @@ class VectorStore(ABC):
     @abstractmethod
     def search(self, vector: list[float], top_k: int) -> list[RetrievedChunk]:
         """Retourne les `top_k` chunks les plus proches du vecteur fourni."""
+
+    @abstractmethod
+    def delete_source(self, source: str) -> None:
+        """Supprime tous les chunks provenant d'un document donné."""
+
+    @abstractmethod
+    def list_sources(self) -> list[str]:
+        """Liste les noms de documents déjà indexés (base de la reprise)."""
 
 
 class QdrantVectorStore(VectorStore):
@@ -108,8 +116,13 @@ class QdrantVectorStore(VectorStore):
                 payload={
                     "text": chunk.text,
                     "source": chunk.source,
-                    "page": chunk.page,
                     "index": chunk.index,
+                    "chunk_id": chunk.chunk_id,
+                    "line_start": chunk.line_start,
+                    "line_end": chunk.line_end,
+                    # Traçabilité : de quels blocs du document vient ce texte.
+                    "section_path": list(chunk.section_path),
+                    "block_ids": list(chunk.block_ids),
                 },
             )
             for chunk, vector in zip(chunks, vectors)
@@ -124,7 +137,7 @@ class QdrantVectorStore(VectorStore):
     @staticmethod
     def _point_id(chunk: Chunk) -> str:
         """Identifiant stable dérivé de la provenance du chunk."""
-        key = f"{chunk.source}:{chunk.page}:{chunk.index}"
+        key = f"{chunk.source}:{chunk.index}"
         return str(uuid.uuid5(_ID_NAMESPACE, key))
 
     # ------------------------------------------------------------------
@@ -144,9 +157,13 @@ class QdrantVectorStore(VectorStore):
             payload = point.payload or {}
             chunk = Chunk(
                 source=payload.get("source", "inconnu"),
-                page=int(payload.get("page", 0)),
                 index=int(payload.get("index", 0)),
                 text=payload.get("text", ""),
+                chunk_id=payload.get("chunk_id", ""),
+                line_start=int(payload.get("line_start", 0)),
+                line_end=int(payload.get("line_end", 0)),
+                section_path=tuple(payload.get("section_path") or ()),
+                block_ids=tuple(payload.get("block_ids") or ()),
             )
             results.append(RetrievedChunk(chunk=chunk, score=float(point.score)))
 

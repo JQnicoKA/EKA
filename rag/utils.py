@@ -14,14 +14,19 @@ T = TypeVar("T")
 def retry(
     func: Callable[[], T],
     *,
-    attempts: int = 4,
+    attempts: int = 6,
     base_delay: float = 1.0,
+    max_delay: float = 30.0,
     description: str = "appel API",
 ) -> T:
-    """Réessaie `func` en cas d'exception, avec un délai exponentiel.
+    """Réessaie `func` en cas d'exception, avec un délai exponentiel plafonné.
 
     Utile face aux erreurs transitoires des API distantes (429 rate limit,
     coupure réseau, 5xx). Après `attempts` échecs, l'exception est propagée.
+
+    Les valeurs par défaut couvrent ~1 minute d'attente cumulée (1+2+4+8+16 s) :
+    une limitation de débit soutenue est absorbée plutôt que de faire perdre un
+    lot entier de documents.
     """
     last_error: Exception | None = None
 
@@ -32,7 +37,7 @@ def retry(
             last_error = error
             if attempt == attempts:
                 break
-            delay = base_delay * (2 ** (attempt - 1))
+            delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
             logger.warning(
                 "Échec de %s (tentative %d/%d) : %s — nouvelle tentative dans %.1fs",
                 description, attempt, attempts, error, delay,

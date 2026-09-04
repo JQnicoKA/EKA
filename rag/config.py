@@ -45,16 +45,30 @@ class Settings:
     qdrant_api_key: str | None = None
     collection_name: str = "documents"
 
-    # --- Découpage des documents ---
-    chunk_size: int = 1000        # taille cible d'un chunk, en caractères
-    chunk_overlap: int = 150      # recouvrement entre deux chunks consécutifs
+    # --- Découpage sémantique des documents ---
+    # "semantic" : le LLM planifie les frontières ; "heuristic" : plan déterministe
+    # (sans appel API, utile pour l'ingestion en masse).
+    chunking_mode: str = "semantic"
+    # Qui planifie le découpage : "mistral" (crédits API) ou "ollama" (modèle local).
+    planner_provider: str = "mistral"
+    planner_model: str = ""            # vide = llm_model (mistral) ou ollama_model
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:3b"
+    ollama_num_ctx: int = 8192         # fenêtre de contexte du modèle local
+    ollama_timeout: float = 180.0      # un modèle local peut être lent
+    target_chunk_chars: int = 1200     # taille visée d'un chunk
+    max_chunk_chars: int = 2000        # taille maximale (garantie par le code)
+    min_chunk_chars: int = 200         # en deçà, le chunk est fusionné avec le suivant
+    max_block_chars: int = 1200        # au-delà, un bloc est redécoupé par le parser
+    planner_batch_blocks: int = 40     # nombre de blocs envoyés au LLM par appel
+    planner_max_attempts: int = 2      # tentatives avant repli déterministe
 
     # --- Recherche ---
     top_k: int = 4                # nombre de chunks récupérés par question
     score_threshold: float = 0.0  # score minimal (similarité cosinus) pour garder un chunk
 
     # --- Divers ---
-    data_dir: str = "data"        # dossier où sont déposés les PDF
+    data_dir: str = "data"        # dossier où sont déposés les .txt
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -74,15 +88,36 @@ class Settings:
             qdrant_url=os.getenv("QDRANT_URL", "http://localhost:6343"),
             qdrant_api_key=os.getenv("QDRANT_API_KEY") or None,
             collection_name=os.getenv("QDRANT_COLLECTION", "documents"),
-            chunk_size=_get_int("CHUNK_SIZE", 1000),
-            chunk_overlap=_get_int("CHUNK_OVERLAP", 150),
+            chunking_mode=os.getenv("CHUNKING_MODE", "semantic").strip().lower(),
+            planner_provider=os.getenv("PLANNER_PROVIDER", "mistral").strip().lower(),
+            planner_model=os.getenv("PLANNER_MODEL", "").strip(),
+            ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434").strip(),
+            ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2:3b").strip(),
+            ollama_num_ctx=_get_int("OLLAMA_NUM_CTX", 8192),
+            ollama_timeout=float(_get_int("OLLAMA_TIMEOUT", 180)),
+            target_chunk_chars=_get_int("TARGET_CHUNK_CHARS", 1200),
+            max_chunk_chars=_get_int("MAX_CHUNK_CHARS", 2000),
+            min_chunk_chars=_get_int("MIN_CHUNK_CHARS", 200),
+            max_block_chars=_get_int("MAX_BLOCK_CHARS", 1200),
+            planner_batch_blocks=_get_int("PLANNER_BATCH_BLOCKS", 40),
+            planner_max_attempts=_get_int("PLANNER_MAX_ATTEMPTS", 2),
             top_k=_get_int("TOP_K", 4),
             data_dir=os.getenv("DATA_DIR", "data"),
         )
 
-        # Garde-fou : un recouvrement >= taille de chunk provoquerait une boucle infinie
-        # dans le découpage.
-        if settings.chunk_overlap >= settings.chunk_size:
-            raise ValueError("CHUNK_OVERLAP doit être strictement inférieur à CHUNK_SIZE.")
+        # Garde-fous : des tailles incohérentes rendraient le découpage impossible.
+        if settings.chunking_mode not in ("semantic", "heuristic"):
+            raise ValueError("CHUNKING_MODE doit valoir 'semantic' ou 'heuristic'.")
+        if settings.planner_provider not in ("mistral", "ollama"):
+            raise ValueError("PLANNER_PROVIDER doit valoir 'mistral' ou 'ollama'.")
+        if settings.target_chunk_chars > settings.max_chunk_chars:
+            raise ValueError("TARGET_CHUNK_CHARS doit être <= MAX_CHUNK_CHARS.")
+        if settings.max_block_chars > settings.max_chunk_chars:
+            raise ValueError(
+                "MAX_BLOCK_CHARS doit être <= MAX_CHUNK_CHARS : un bloc doit toujours "
+                "tenir dans un chunk."
+            )
+        if settings.min_chunk_chars >= settings.max_chunk_chars:
+            raise ValueError("MIN_CHUNK_CHARS doit être < MAX_CHUNK_CHARS.")
 
         return settings

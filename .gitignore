@@ -1,2 +1,6 @@
 EnterpriseRAG-bench/
 .env
+__pycache__/
+*.pyc
+.DS_Store
+bench/

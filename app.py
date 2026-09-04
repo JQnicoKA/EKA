@@ -5,6 +5,8 @@ Lancement :  streamlit run app.py
 L'interface est volontairement minimale :
   - colonne de gauche : gestion des documents (import, indexation, suppression) ;
   - zone principale : poser une question et lire la réponse avec ses sources.
+
+Les documents acceptés sont des fichiers texte (.txt, .md).
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ with st.sidebar:
     st.header("📄 Documents")
 
     uploaded_files = st.file_uploader(
-        "Importer des PDF", type="pdf", accept_multiple_files=True
+        "Importer des documents", type=["txt", "md"], accept_multiple_files=True
     )
 
     if uploaded_files and st.button("Indexer", type="primary", use_container_width=True):
@@ -69,28 +71,31 @@ with st.sidebar:
             progress.progress(position / len(uploaded_files))
         st.rerun()
 
-#-----------
-    # Ingestion en masse du corpus de benchmark posé à côté du projet.
-    if st.button("Indexer EnterpriseRAG-bench", use_container_width=True):
-        corpus = Path("./EnterpriseRAG-bench")
-        fichiers = sorted(corpus.rglob("*.txt"))
+    # Ingestion en masse d'un corpus posé à côté du projet.
+    with st.expander("Ingestion en masse"):
+        dossier = st.text_input("Dossier à indexer", value="../EnterpriseRAG-bench")
+        limite = st.number_input("Nombre maximum de fichiers", 1, 5000, 50)
 
-        if not fichiers:
-            st.warning(f"Aucun fichier .txt trouvé dans {corpus.resolve()}.")
-        else:
-            progress = st.progress(0.0)
-            for position, fichier in enumerate(fichiers, start=1):
-                destination = data_dir / fichier.name
-                destination.write_bytes(fichier.read_bytes())
-                try:
-                    nb_chunks = pipeline.ingest_file(destination)
-                    st.success(f"{fichier.name} : {nb_chunks} chunk(s)")
-                except Exception as error:  # noqa: BLE001
-                    st.error(f"{fichier.name} : {error}")
-                progress.progress(position / len(fichiers))
-            st.rerun()
+        if st.button("Indexer le dossier", use_container_width=True):
+            corpus = Path(dossier)
+            fichiers = sorted(
+                chemin
+                for chemin in corpus.rglob("*")
+                if chemin.is_file() and pipeline.parser.supports(chemin)
+            )[: int(limite)]
 
-#-----------
+            if not fichiers:
+                st.warning(f"Aucun fichier texte trouvé dans {corpus.resolve()}.")
+            else:
+                progress = st.progress(0.0)
+                for position, fichier in enumerate(fichiers, start=1):
+                    try:
+                        nb_chunks = pipeline.ingest_file(fichier)
+                        st.write(f"{fichier.name} : {nb_chunks} chunk(s)")
+                    except Exception as error:  # noqa: BLE001
+                        st.error(f"{fichier.name} : {error}")
+                    progress.progress(position / len(fichiers))
+                st.rerun()
 
     st.divider()
 
@@ -121,6 +126,8 @@ with st.sidebar:
     st.caption(
         f"Embeddings : `{settings.embedding_model}`  \n"
         f"LLM : `{settings.llm_model}`  \n"
+        f"Chunking : `{settings.chunking_mode}` "
+        f"(cible {settings.target_chunk_chars} car., max {settings.max_chunk_chars})  \n"
         f"Chunks récupérés : `{settings.top_k}`"
     )
 
@@ -129,7 +136,7 @@ with st.sidebar:
 # Zone principale : question / réponse
 # ----------------------------------------------------------------------
 st.title("📚 Assistant documentaire")
-st.caption("Posez une question ; la réponse est construite à partir de vos PDF uniquement.")
+st.caption("Posez une question ; la réponse est construite à partir de vos documents uniquement.")
 
 question = st.text_input(
     "Votre question",
@@ -138,7 +145,7 @@ question = st.text_input(
 
 if st.button("Rechercher", type="primary", disabled=not question):
     if not sources:
-        st.warning("Aucun document indexé. Importez d'abord un PDF dans la colonne de gauche.")
+        st.warning("Aucun document indexé. Importez d'abord un fichier texte dans la colonne de gauche.")
     else:
         with st.spinner("Recherche et génération de la réponse..."):
             try:
@@ -159,4 +166,8 @@ if st.button("Rechercher", type="primary", disabled=not question):
                 chunk = result.chunk
                 titre = f"[{position}] {chunk.reference} — similarité {result.score:.3f}"
                 with st.expander(titre):
+                    if chunk.section:
+                        st.caption(f"Section : {chunk.section}")
                     st.markdown(f"> {chunk.text}")
+                    # Traçabilité : les blocs du document dont ce texte est issu.
+                    st.caption(f"Blocs sources : {', '.join(chunk.block_ids) or '—'}")
