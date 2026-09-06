@@ -14,14 +14,19 @@ T = TypeVar("T")
 def retry(
     func: Callable[[], T],
     *,
-    attempts: int = 4,
-    base_delay: float = 1.0,
+    attempts: int = 5,
+    base_delay: float = 5.0,
     description: str = "appel API",
 ) -> T:
     """Réessaie `func` en cas d'exception, avec un délai exponentiel.
 
     Utile face aux erreurs transitoires des API distantes (429 rate limit,
     coupure réseau, 5xx). Après `attempts` échecs, l'exception est propagée.
+
+    Les délais sont 5, 10, 20 puis 40 secondes, soit 75 s d'attente cumulée :
+    de quoi franchir la réinitialisation d'un quota par minute. Un backoff plus
+    court (1-2-4 s) abandonnait avant la fin de la fenêtre et faisait perdre le
+    lot — donc payer sa vectorisation pour rien.
     """
     last_error: Exception | None = None
 

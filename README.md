@@ -1,9 +1,9 @@
 # RAG minimaliste — Mistral + Qdrant
 
 Un pipeline **Retrieval-Augmented Generation** réduit à l'essentiel : on indexe des
-PDF dans une base vectorielle, puis on interroge un LLM en lui fournissant
+des fichiers texte dans une base vectorielle, puis on interroge un LLM en lui fournissant
 uniquement les passages pertinents. Chaque réponse est accompagnée de sa source
-(document + page).
+(document + lignes).
 
 Pas d'observabilité, pas de reranking, pas de stratégie avancée : l'objectif est
 de comprendre le mécanisme de bout en bout.
@@ -14,8 +14,8 @@ de comprendre le mécanisme de bout en bout.
 
 ```
 INGESTION (une fois par document)
-   PDF ──▶ pages ──▶ chunks ──▶ embeddings ──▶ Qdrant
-        loader   chunker    MistralEmbedder   vector_store
+   .txt ──▶ texte ──▶ chunks ──▶ embeddings ──▶ Qdrant
+        loader    chunker    MistralEmbedder   vector_store
 
 INTERROGATION (à chaque question)
    question ──▶ embedding ──▶ recherche top-k ──▶ prompt ──▶ LLM ──▶ réponse + sources
@@ -28,7 +28,7 @@ INTERROGATION (à chaque question)
 |---|---|---|
 | `rag/config.py` | Configuration lue depuis `.env` | `Settings` |
 | `rag/models.py` | Objets métier échangés entre étages | `Page`, `Chunk`, `RetrievedChunk`, `Answer` |
-| `rag/loader.py` | 1. Extraction du texte des PDF | `PDFLoader` |
+| `rag/loader.py` | 1. Lecture des fichiers `.txt` | `TextLoader` |
 | `rag/chunker.py` | 2. Découpage en morceaux | `TextChunker` |
 | `rag/embedder.py` | 3. Vectorisation | `MistralEmbedder` |
 | `rag/vector_store.py` | 4. Stockage + recherche | `QdrantVectorStore` |
@@ -75,7 +75,7 @@ docker compose up -d
 
 ### Vérifier l'installation sans consommer de crédits API
 
-`smoke_test.py` rejoue tout le pipeline (PDF → chunks → Qdrant → recherche →
+`smoke_test.py` rejoue tout le pipeline (.txt → chunks → Qdrant → recherche →
 construction du prompt) en remplaçant Mistral par de faux composants. Utile pour
 vérifier que Qdrant répond avant même d'avoir une clé API :
 
@@ -83,7 +83,7 @@ vérifier que Qdrant répond avant même d'avoir une clé API :
 python smoke_test.py
 ```
 
-Un PDF d'exemple généré (`data/test_rapport.pdf`) est fourni pour ces essais.
+Un fichier d'exemple (`data/test_rapport.txt`) est fourni pour ces essais.
 
 ## Utilisation
 
@@ -93,13 +93,14 @@ Un PDF d'exemple généré (`data/test_rapport.pdf`) est fourni pour ces essais.
 streamlit run app.py
 ```
 
-Puis, dans le navigateur : importez un PDF dans la colonne de gauche, cliquez sur
+Puis, dans le navigateur : importez un `.txt` dans la colonne de gauche, cliquez sur
 **Indexer**, et posez votre question.
 
 ### Ligne de commande
 
 ```bash
-python main.py ingest data/               # indexe tous les PDF du dossier
+python main.py ingest data/               # indexe tous les .txt du dossier
+python main.py ingest data/ -r            # ... y compris les sous-dossiers
 python main.py ask "Quel est le budget ?" # pose une question
 python main.py status                     # nombre de documents / chunks
 python main.py reset                      # vide la base
@@ -123,15 +124,18 @@ Le prompt système (la consigne donnée au LLM) se trouve dans
 
 ## Détails d'implémentation à connaître
 
-- **Découpage page par page** : un chunk n'enjambe jamais deux pages, ce qui
-  garantit une citation exacte (`rapport.pdf (p. 3)`).
+- **Références en numéros de ligne** : un fichier texte n'a pas de pages. Chaque
+  chunk retient les lignes d'où il provient, d'où des citations du type
+  `notes.txt (l. 12-40)`. Le contenu est lu **sans nettoyage**, faute de quoi les
+  numéros ne correspondraient plus au fichier ouvert dans un éditeur.
 - **Identifiants déterministes** : l'ID d'un point Qdrant est dérivé de
-  `source:page:index`. Réindexer le même PDF met à jour les points au lieu de
-  créer des doublons.
+  `source:index`. Réindexer le même fichier met à jour les points au lieu de
+  créer des doublons — mais s'il a raccourci, les points en trop subsistent.
 - **Similarité cosinus** : le score affiché va de 0 à 1 ; au-delà de ~0,75 le
   passage est en général très pertinent.
-- **PDF scannés** : `pypdf` n'extrait que le texte natif. Un PDF composé
-  d'images produira une erreur explicite — il faudrait un OCR (hors périmètre).
+- **Format unique** : seul le `.txt` est accepté (`TextLoader.SUFFIXES`). Ajouter
+  le `.md` tient en une entrée de ce tuple ; un autre format demande une nouvelle
+  classe implémentant `DocumentLoader`.
 - **Réessais automatiques** : les appels API sont retentés 4 fois avec un délai
   exponentiel (`rag/utils.py`), pour absorber les erreurs 429 / réseau.
 

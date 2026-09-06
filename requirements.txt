@@ -1,7 +1,6 @@
 # --- Coeur du RAG ---
 mistralai>=1.5,<2          # embeddings (mistral-embed) + génération (chat)
 qdrant-client>=1.12,<2     # base vectorielle
-pypdf>=5.1,<6              # extraction du texte des PDF
 
 # --- Interface & configuration ---
 streamlit>=1.40,<2         # interface utilisateur

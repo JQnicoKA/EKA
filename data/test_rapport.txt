@@ -1,0 +1,40 @@
+Rapport annuel 2024 — Société Acme
+
+1. Résultats financiers
+
+Le chiffre d'affaires atteint 12,4 millions d'euros sur l'exercice 2024, en
+hausse de 18 % par rapport à 2023. Cette progression s'explique principalement
+par la croissance de l'activité logicielle, qui représente désormais 62 % du
+revenu total contre 51 % l'année précédente.
+
+La marge brute s'établit à 68 %, en amélioration de trois points. Le résultat
+net ressort à 1,9 million d'euros, soit une marge nette de 15,3 %.
+
+2. Effectifs et organisation
+
+L'effectif est de 87 salariés au 31 décembre 2024, répartis sur trois sites :
+Paris (52 personnes), Lyon (21 personnes) et Nantes (14 personnes). Vingt-trois
+recrutements ont été réalisés dans l'année, pour neuf départs.
+
+La part des effectifs techniques atteint 61 %. L'âge moyen est de 34 ans et
+l'ancienneté moyenne de 3,2 ans.
+
+3. Investissements
+
+Les dépenses de recherche et développement s'élèvent à 2,1 millions d'euros,
+soit 17 % du chiffre d'affaires. Elles ont porté sur trois axes : la refonte
+de la plateforme d'ingestion, l'industrialisation du déploiement continu et
+la mise en conformité RGPD des traitements clients.
+
+Le budget prévisionnel 2025 pour la R&D est fixé à 2,6 millions d'euros.
+
+4. Perspectives 2025
+
+La direction vise un chiffre d'affaires de 15 millions d'euros en 2025, porté
+par l'ouverture du marché allemand et le lancement de l'offre entreprise. Le
+recrutement de quinze personnes supplémentaires est planifié, dont dix profils
+techniques.
+
+Les principaux risques identifiés sont la dépendance à deux clients majeurs
+représentant 28 % du revenu, et la tension sur le recrutement des ingénieurs
+en apprentissage automatique.

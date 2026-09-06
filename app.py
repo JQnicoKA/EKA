@@ -53,7 +53,7 @@ with st.sidebar:
     st.header("📄 Documents")
 
     uploaded_files = st.file_uploader(
-        "Importer des PDF", type="pdf", accept_multiple_files=True
+        "Importer des fichiers .txt", type="txt", accept_multiple_files=True
     )
 
     if uploaded_files and st.button("Indexer", type="primary", use_container_width=True):
@@ -69,28 +69,37 @@ with st.sidebar:
             progress.progress(position / len(uploaded_files))
         st.rerun()
 
-#-----------
     # Ingestion en masse du corpus de benchmark posé à côté du projet.
+    # Le corpus est lu sur place : inutile de le recopier dans data/.
+    corpus = Path(__file__).resolve().parent.parent / "EnterpriseRAG-bench"
+    limite = st.number_input(
+        "Nombre max. de fichiers à indexer", min_value=1, max_value=100_000, value=50,
+        help="Le corpus complet compte plus de 500 000 fichiers : un appel "
+             "d'embeddings par document, à indexer par lots.",
+    )
+
     if st.button("Indexer EnterpriseRAG-bench", use_container_width=True):
-        corpus = Path("./EnterpriseRAG-bench")
-        fichiers = sorted(corpus.rglob("*.txt"))
-
-        if not fichiers:
-            st.warning(f"Aucun fichier .txt trouvé dans {corpus.resolve()}.")
+        if not corpus.is_dir():
+            st.warning(f"Dossier introuvable : {corpus}")
         else:
-            progress = st.progress(0.0)
-            for position, fichier in enumerate(fichiers, start=1):
-                destination = data_dir / fichier.name
-                destination.write_bytes(fichier.read_bytes())
-                try:
-                    nb_chunks = pipeline.ingest_file(destination)
-                    st.success(f"{fichier.name} : {nb_chunks} chunk(s)")
-                except Exception as error:  # noqa: BLE001
-                    st.error(f"{fichier.name} : {error}")
-                progress.progress(position / len(fichiers))
-            st.rerun()
-
-#-----------
+            fichiers = sorted(corpus.rglob("*.txt"))[: int(limite)]
+            if not fichiers:
+                st.warning(f"Aucun fichier .txt trouvé dans {corpus}.")
+            else:
+                progress = st.progress(0.0)
+                total, echecs = 0, 0
+                for position, fichier in enumerate(fichiers, start=1):
+                    try:
+                        total += pipeline.ingest_file(fichier)
+                    except Exception as error:  # noqa: BLE001
+                        echecs += 1
+                        logging.error("%s : %s", fichier.name, error)
+                    progress.progress(position / len(fichiers))
+                # Un message global : afficher une ligne par fichier saturerait la page.
+                st.success(f"{len(fichiers) - echecs} document(s), {total} chunk(s) indexés.")
+                if echecs:
+                    st.warning(f"{echecs} document(s) en échec (voir la console).")
+                st.rerun()
 
     st.divider()
 
@@ -129,7 +138,7 @@ with st.sidebar:
 # Zone principale : question / réponse
 # ----------------------------------------------------------------------
 st.title("📚 Assistant documentaire")
-st.caption("Posez une question ; la réponse est construite à partir de vos PDF uniquement.")
+st.caption("Posez une question ; la réponse est construite à partir de vos documents uniquement.")
 
 question = st.text_input(
     "Votre question",
@@ -138,7 +147,7 @@ question = st.text_input(
 
 if st.button("Rechercher", type="primary", disabled=not question):
     if not sources:
-        st.warning("Aucun document indexé. Importez d'abord un PDF dans la colonne de gauche.")
+        st.warning("Aucun document indexé. Importez d'abord un .txt dans la colonne de gauche.")
     else:
         with st.spinner("Recherche et génération de la réponse..."):
             try:

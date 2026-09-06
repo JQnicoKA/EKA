@@ -11,12 +11,15 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class Page:
-    """Une page brute extraite d'un document PDF."""
+class Document:
+    """Un document texte chargé depuis le disque.
 
-    source: str   # nom du fichier d'origine, ex. "rapport_2024.pdf"
-    page: int     # numéro de page, indexé à partir de 1
-    text: str     # texte brut de la page
+    Contrairement à un PDF, un fichier texte n'a pas de pages : le repère
+    utilisé pour citer un passage est le **numéro de ligne**.
+    """
+
+    source: str   # nom du fichier d'origine, ex. "notes_reunion.txt"
+    text: str     # contenu intégral du fichier
 
 
 @dataclass(frozen=True)
@@ -24,14 +27,19 @@ class Chunk:
     """Un morceau de texte prêt à être vectorisé et stocké."""
 
     source: str
-    page: int
-    index: int    # position du chunk dans le document (0, 1, 2, ...)
+    index: int        # position du chunk dans le document (0, 1, 2, ...)
     text: str
+    line_start: int = 0   # première ligne du chunk dans le fichier (indexée à 1)
+    line_end: int = 0     # dernière ligne du chunk
 
     @property
     def reference(self) -> str:
-        """Référence lisible affichée à l'utilisateur, ex. "rapport.pdf (p. 3)"."""
-        return f"{self.source} (p. {self.page})"
+        """Référence lisible affichée à l'utilisateur, ex. "notes.txt (l. 12-40)"."""
+        if not self.line_start:
+            return self.source
+        if self.line_end and self.line_end != self.line_start:
+            return f"{self.source} (l. {self.line_start}-{self.line_end})"
+        return f"{self.source} (l. {self.line_start})"
 
 
 @dataclass(frozen=True)

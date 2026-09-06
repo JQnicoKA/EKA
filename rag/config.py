@@ -54,7 +54,7 @@ class Settings:
     score_threshold: float = 0.0  # score minimal (similarité cosinus) pour garder un chunk
 
     # --- Divers ---
-    data_dir: str = "data"        # dossier où sont déposés les PDF
+    data_dir: str = "data"        # dossier où sont déposés les .txt
 
     @classmethod
     def from_env(cls) -> "Settings":
