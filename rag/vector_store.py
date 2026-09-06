@@ -6,7 +6,7 @@ Qdrant stocke des "points". Chaque point contient :
   - un `payload` : les métadonnées, ici le texte du chunk et sa provenance.
 
 C'est ce payload qui permet, après la recherche, de reconstruire le chunk et
-d'afficher la référence (document + page) à l'utilisateur.
+d'afficher la référence (document + lignes) à l'utilisateur.
 """
 
 from __future__ import annotations
@@ -108,8 +108,9 @@ class QdrantVectorStore(VectorStore):
                 payload={
                     "text": chunk.text,
                     "source": chunk.source,
-                    "page": chunk.page,
                     "index": chunk.index,
+                    "line_start": chunk.line_start,
+                    "line_end": chunk.line_end,
                 },
             )
             for chunk, vector in zip(chunks, vectors)
@@ -124,7 +125,7 @@ class QdrantVectorStore(VectorStore):
     @staticmethod
     def _point_id(chunk: Chunk) -> str:
         """Identifiant stable dérivé de la provenance du chunk."""
-        key = f"{chunk.source}:{chunk.page}:{chunk.index}"
+        key = f"{chunk.source}:{chunk.index}"
         return str(uuid.uuid5(_ID_NAMESPACE, key))
 
     # ------------------------------------------------------------------
@@ -144,9 +145,10 @@ class QdrantVectorStore(VectorStore):
             payload = point.payload or {}
             chunk = Chunk(
                 source=payload.get("source", "inconnu"),
-                page=int(payload.get("page", 0)),
                 index=int(payload.get("index", 0)),
                 text=payload.get("text", ""),
+                line_start=int(payload.get("line_start", 0)),
+                line_end=int(payload.get("line_end", 0)),
             )
             results.append(RetrievedChunk(chunk=chunk, score=float(point.score)))
 

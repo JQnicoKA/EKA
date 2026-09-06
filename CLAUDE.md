@@ -4,9 +4,9 @@ Guide pour Claude Code travaillant sur ce dépôt.
 
 ## Vue d'ensemble
 
-RAG (Retrieval-Augmented Generation) minimaliste et pédagogique : indexation de PDF
-dans **Qdrant**, questions/réponses via **Mistral** (embeddings + chat), chaque réponse
-citant sa source (`document.pdf (p. 3)`).
+RAG (Retrieval-Augmented Generation) minimaliste et pédagogique : indexation de
+fichiers **`.txt`** dans **Qdrant**, questions/réponses via **Mistral** (embeddings +
+chat), chaque réponse citant sa source (`notes.txt (l. 12-40)`).
 
 Le code est **en français** (docstrings, commentaires, messages d'erreur, prompts).
 **Conserver cette langue** dans tout ajout ou modification.
@@ -24,8 +24,8 @@ dans son constructeur.
 | Fichier | Rôle | ABC | Implémentation |
 |---|---|---|---|
 | `rag/config.py` | Configuration depuis `.env` | — | `Settings` (dataclass *frozen*) |
-| `rag/models.py` | Objets métier entre étages | — | `Page`, `Chunk`, `RetrievedChunk`, `Answer` |
-| `rag/loader.py` | 1. Extraction texte PDF | `DocumentLoader` | `PDFLoader` (pypdf) |
+| `rag/models.py` | Objets métier entre étages | — | `Document`, `Chunk`, `RetrievedChunk`, `Answer` |
+| `rag/loader.py` | 1. Lecture des `.txt` | `DocumentLoader` | `TextLoader` |
 | `rag/chunker.py` | 2. Découpage | — | `TextChunker` |
 | `rag/embedder.py` | 3. Vectorisation | `Embedder` | `MistralEmbedder` |
 | `rag/vector_store.py` | 4. Stockage + recherche | `VectorStore` | `QdrantVectorStore` |
@@ -34,7 +34,7 @@ dans son constructeur.
 | `rag/utils.py` | `retry()` exponentiel | — | — |
 
 Deux flux :
-- **Ingestion** : PDF → `Page[]` → `Chunk[]` → embeddings → upsert Qdrant
+- **Ingestion** : `.txt` → `Document` → `Chunk[]` → embeddings → upsert Qdrant
 - **Interrogation** : question → embedding → `search(top_k)` → prompt numéroté → LLM → `Answer`
 
 Points d'entrée : `app.py` (Streamlit), `main.py` (CLI), `smoke_test.py` (test hors-ligne).
@@ -58,8 +58,9 @@ docker compose up -d              # Qdrant sur http://localhost:6343/dashboard
 python smoke_test.py
 
 # CLI
-python main.py ingest data/                 # indexe tous les PDF d'un dossier
-python main.py ingest data/rapport.pdf      # un seul fichier
+python main.py ingest data/                 # indexe tous les .txt d'un dossier
+python main.py ingest data/ -r              # ... y compris les sous-dossiers
+python main.py ingest data/notes.txt        # un seul fichier
 python main.py ask "Quel est le budget ?"
 python main.py status                       # documents + nombre de chunks
 python main.py reset                        # vide la collection
@@ -69,7 +70,7 @@ streamlit run app.py
 ```
 
 `smoke_test.py` est le moyen privilégié de valider un changement : il rejoue
-ingestion → idempotence → recherche → prompt → suppression sur `data/test_rapport.pdf`,
+ingestion → idempotence → recherche → prompt → suppression sur `data/test_rapport.txt`,
 dans une collection `smoke_test` séparée, sans appeler Mistral. Il n'y a pas de suite
 de tests unitaires.
 
@@ -98,13 +99,14 @@ Tout passe par `.env` (chargé par `python-dotenv`), lu une seule fois dans
   `qdrant-client` : le client refuse un écart de version majeure.
 - **Dimension des vecteurs** : changer `EMBEDDING_MODEL`/`EMBEDDING_DIMENSION` sans
   recréer la collection lève une `RuntimeError` explicite dans `_ensure_collection()`.
-- **IDs déterministes** : `uuid5(namespace, "source:page:index")`. Réindexer le même
-  PDF met à jour les points au lieu de dupliquer — mais si le PDF change et produit
-  moins de chunks, les anciens points en surplus subsistent (`delete_source()` d'abord).
-- **Un chunk n'enjambe jamais deux pages** : c'est ce qui garantit une citation de page
-  exacte. Ne pas casser cette propriété dans `TextChunker`.
-- **PDF scannés** : `pypdf` n'extrait que le texte natif ; un PDF-image lève une
-  `ValueError` explicite. Pas d'OCR (hors périmètre).
+- **IDs déterministes** : `uuid5(namespace, "source:index")`. Réindexer le même
+  fichier met à jour les points au lieu de dupliquer — mais s'il produit moins de
+  chunks qu'avant, les points en surplus subsistent (`delete_source()` d'abord).
+- **Texte lu sans nettoyage** dans `TextLoader` : c'est la condition pour que
+  `line_start`/`line_end` correspondent au fichier réel. Ne pas y ajouter de
+  normalisation d'espaces ou de sauts de ligne.
+- **Format unique** : `.txt` seulement (`TextLoader.SUFFIXES`). Un autre format =
+  une nouvelle classe implémentant `DocumentLoader`, pas une condition dans le loader.
 - **Appels API** : toujours passer par `retry()` de `rag/utils.py` (4 tentatives,
   délai exponentiel) pour absorber les 429 / erreurs réseau.
 - **Prompt système** : dans `rag/generator.py` (`SYSTEM_PROMPT`). C'est le premier
@@ -113,31 +115,15 @@ Tout passe par `.env` (chargé par `python-dotenv`), lu une seule fois dans
 
 ## État actuel du dépôt
 
-**Rien ne s'exécute en l'état.** Trois blocages, dans l'ordre où ils se déclenchent :
+Environnement fonctionnel : `.venv` (Python 3.11) à la racine du dossier parent,
+Qdrant démarré sur le port 6343, `.env` renseigné avec `MISTRAL_API_KEY`.
+`python smoke_test.py` passe de bout en bout.
 
-1. **Dépendances absentes** : `mistralai`, `qdrant_client`, `streamlit`, `pypdf` ne sont
-   pas installés (pas de `.venv` dans le dossier ; le `python3` du système, en 3.9.6,
-   n'a que `python-dotenv`). `app.py:17` / `main.py:18` font `from rag import ...`, qui
-   charge `rag/embedder.py` → `import mistralai` : l'`ImportError` remonte *avant* le
-   `try/except` de `main.py`, donc trace brute et non message soigné. Concerne aussi
-   `smoke_test.py`.
-2. **Pas de clé API** : ni `.env`, ni `.env.example` (le README et le message d'erreur y
-   renvoient pourtant), ni `MISTRAL_API_KEY` dans l'environnement →
-   `Settings.from_env()` lève une `RuntimeError` (`rag/config.py:65`).
-3. **Qdrant injoignable** sur `localhost:6343` → `RuntimeError` dans
-   `QdrantVectorStore._ensure_collection()` (`rag/vector_store.py:74`).
+Le corpus de benchmark `EnterpriseRAG-bench/` (511 962 fichiers `.txt`) est posé à
+côté du dépôt et ignoré par git. Le bouton « Indexer EnterpriseRAG-bench » de
+`app.py` en indexe un sous-ensemble borné : l'ingestion fait **un appel d'embeddings
+par document**, indexer le corpus entier tel quel n'est pas réaliste.
 
-Les points 2 et 3 sont correctement rattrapés (« Erreur de démarrage » en CLI,
-`st.error` avec checklist en Streamlit). `smoke_test.py` ne contourne que l'appel à
-Mistral — il lui faut quand même les dépendances et un Qdrant qui répond.
-
-Le code compile sous Python 3.9 (`from __future__ import annotations` partout), même si
-le README demande 3.10+.
-- `.gitignore` ne contient que `EnterpriseRAG-bench/` : `rag/__pycache__/*.pyc` et
-  `.DS_Store` sont versionnés à tort, et `.env` n'y est **pas** ignoré — attention à
-  ne jamais committer de clé API.
-- `app.py` contient un bloc de travail en cours autour du bouton « Cliquezzz »
-  (ingestion en masse d'un dossier `./EnterpriseRAG-bench`). Ce bloc est cassé :
-  `with monbouton:` sur un booléen, `Path.getbuffer()` qui n'existe pas, `progress`
-  hors boucle, variable `uploaded` hors portée, et le pipeline n'accepte que des PDF
-  alors que le code cherche des `*.txt`. Le dossier visé n'est pas présent.
+La branche `semantic-chunking` conserve une version à découpage sémantique piloté par
+LLM (parser en blocs, planner, validateur, reconstructeur), mise de côté car trop
+coûteuse en appels API pour le bénéfice constaté.
