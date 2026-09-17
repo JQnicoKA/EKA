@@ -71,7 +71,7 @@ def main() -> None:
     )
 
     print("\n=== 1. Ingestion ===")
-    nb = pipeline.ingest_file(Path("data/test_rapport.txt"))
+    nb = pipeline.ingest_file(Path("tests/fixtures/test_rapport.txt"))
     print(f"chunks indexés : {nb}")
 
     print("\n=== 2. État de la base ===")
@@ -79,7 +79,7 @@ def main() -> None:
     print("chunks    :", pipeline.vector_store.count())
 
     print("\n=== 3. Idempotence (ré-ingestion) ===")
-    pipeline.ingest_file(Path("data/test_rapport.txt"))
+    pipeline.ingest_file(Path("tests/fixtures/test_rapport.txt"))
     print("chunks après ré-ingestion :", pipeline.vector_store.count(), "(doit être identique)")
 
     print("\n=== 4. Question ===")

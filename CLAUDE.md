@@ -70,7 +70,8 @@ streamlit run app.py
 ```
 
 `smoke_test.py` est le moyen privilégié de valider un changement : il rejoue
-ingestion → idempotence → recherche → prompt → suppression sur `data/test_rapport.txt`,
+ingestion → idempotence → recherche → prompt → suppression sur
+`tests/fixtures/test_rapport.txt`,
 dans une collection `smoke_test` séparée, sans appeler Mistral. Il n'y a pas de suite
 de tests unitaires.
 
@@ -84,12 +85,12 @@ Tout passe par `.env` (chargé par `python-dotenv`), lu une seule fois dans
 | `MISTRAL_API_KEY` | — | obligatoire, sinon `RuntimeError` au démarrage |
 | `EMBEDDING_MODEL` | `mistral-embed` | |
 | `EMBEDDING_DIMENSION` | `1024` | doit correspondre à la collection Qdrant |
-| `LLM_MODEL` | `mistral-small-latest` | |
+| `LLM_MODEL` | `mistral-small-latest` | ⚠️ 429 sur ce compte ; `.env` force `open-mistral-7b` |
 | `QDRANT_URL` | `http://localhost:6343` | **6343**, pas 6333 (voir ci-dessous) |
-| `QDRANT_COLLECTION` | `documents` | |
+| `QDRANT_COLLECTION` | `documents` | `.env` pointe sur `documents_v2` |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `150` | overlap < size, validé au démarrage |
 | `TOP_K` | `4` | |
-| `DATA_DIR` | `data` | |
+| `DATA_DIR` | `../data_perso` | dossier d'import, **hors du dépôt** |
 
 ## Pièges connus
 
@@ -107,23 +108,39 @@ Tout passe par `.env` (chargé par `python-dotenv`), lu une seule fois dans
   normalisation d'espaces ou de sauts de ligne.
 - **Format unique** : `.txt` seulement (`TextLoader.SUFFIXES`). Un autre format =
   une nouvelle classe implémentant `DocumentLoader`, pas une condition dans le loader.
-- **Appels API** : toujours passer par `retry()` de `rag/utils.py` (4 tentatives,
-  délai exponentiel) pour absorber les 429 / erreurs réseau.
+- **Trois dossiers de données distincts** : `../data/` est le corpus du benchmark
+  (511 962 fichiers, ne jamais y écrire), `../data_perso/` reçoit les imports de
+  l'interface (hors dépôt git, c'est `DATA_DIR`), `tests/fixtures/` porte la fixture
+  du smoke test. Ne pas les fusionner : le corpus a déjà été écrasé une fois.
+- **Appels API** : toujours passer par `retry()` de `rag/utils.py` — 5 tentatives,
+  délais 5/10/20/40 s, soit 75 s cumulés pour franchir un quota par minute. Un
+  backoff plus court abandonnait avant la fin de la fenêtre et perdait le lot.
 - **Prompt système** : dans `rag/generator.py` (`SYSTEM_PROMPT`). C'est le premier
   levier de qualité ; il impose de répondre uniquement à partir des extraits et de
   citer `[1]`, `[2]`.
 
 ## État actuel du dépôt
 
-Environnement fonctionnel : `.venv` (Python 3.11) à la racine du dossier parent,
-Qdrant démarré sur le port 6343, `.env` renseigné avec `MISTRAL_API_KEY`.
-`python smoke_test.py` passe de bout en bout.
+`.venv` (Python 3.11) dans le dossier parent, `.env` renseigné, Qdrant sur le port
+6343. `python smoke_test.py` passe de bout en bout.
 
-Le corpus de benchmark `EnterpriseRAG-bench/` (511 962 fichiers `.txt`) est posé à
-côté du dépôt et ignoré par git. Le bouton « Indexer EnterpriseRAG-bench » de
-`app.py` en indexe un sous-ensemble borné : l'ingestion fait **un appel d'embeddings
-par document**, indexer le corpus entier tel quel n'est pas réaliste.
+Docker Desktop s'arrête souvent entre deux sessions. `open -a Docker` puis attendre
+le démon ; s'il reste bloqué (le socket répond mais `docker ps` renvoie EOF),
+`kill -9` sur `com.docker.backend` puis relancer — un `quit` propre ne suffit pas.
 
-La branche `semantic-chunking` conserve une version à découpage sémantique piloté par
-LLM (parser en blocs, planner, validateur, reconstructeur), mise de côté car trop
-coûteuse en appels API pour le bénéfice constaté.
+Deux collections peuplées sur les mêmes 20 722 documents, pour comparer les
+stratégies de découpage :
+
+| Collection | Points | Découpage |
+|---|---:|---|
+| `documents` | 129 358 | sémantique par blocs (branche `semantic-chunking`) |
+| `documents_v2` | 144 537 | fenêtre glissante 1000/150 (`main`) |
+
+Évaluation via EnterpriseRAG-Bench : `run_bench.py` génère les réponses aux 500
+questions (~30 min, Mistral seul), le juge du dépôt calcule les 4 métriques mais
+exige une clé OpenAI ou Anthropic. **Document recall mesuré : 69,3 %** — non
+comparable au leaderboard, l'index ne couvre que 4 % du corpus. Voir le README.
+
+La branche `semantic-chunking` conserve la version à découpage piloté par LLM
+(parser en blocs, planner, validateur, reconstructeur), mise de côté : à coût
+égal en appels LLM une fois en mode `heuristic`, pour ~1 200 lignes de plus.

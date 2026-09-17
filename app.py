@@ -43,7 +43,7 @@ except Exception as error:  # noqa: BLE001
     st.stop()
 
 data_dir = Path(settings.data_dir)
-data_dir.mkdir(exist_ok=True)
+data_dir.mkdir(parents=True, exist_ok=True)
 
 
 # ----------------------------------------------------------------------
@@ -59,7 +59,16 @@ with st.sidebar:
     if uploaded_files and st.button("Indexer", type="primary", use_container_width=True):
         progress = st.progress(0.0)
         for position, uploaded in enumerate(uploaded_files, start=1):
-            destination = data_dir / uploaded.name
+            # Le filtre `type="txt"` du file_uploader est côté navigateur : on
+            # revérifie ici avant d'écrire quoi que ce soit sur le disque.
+            if Path(uploaded.name).suffix.lower() != ".txt":
+                st.error(f"{uploaded.name} : seuls les fichiers .txt sont acceptés.")
+                progress.progress(position / len(uploaded_files))
+                continue
+
+            # `.name` peut contenir des séparateurs de chemin : on ne garde que
+            # le nom de fichier, pour ne pas écrire hors du dossier d'import.
+            destination = data_dir / Path(uploaded.name).name
             destination.write_bytes(uploaded.getbuffer())
             try:
                 nb_chunks = pipeline.ingest_file(destination)

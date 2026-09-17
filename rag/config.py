@@ -54,7 +54,9 @@ class Settings:
     score_threshold: float = 0.0  # score minimal (similarité cosinus) pour garder un chunk
 
     # --- Divers ---
-    data_dir: str = "data"        # dossier où sont déposés les .txt
+    # Dossier des documents importés via l'interface. Volontairement HORS du
+    # dépôt : ce qu'un utilisateur dépose ne doit pas pouvoir être commité.
+    data_dir: str = "../data_perso"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -77,7 +79,7 @@ class Settings:
             chunk_size=_get_int("CHUNK_SIZE", 1000),
             chunk_overlap=_get_int("CHUNK_OVERLAP", 150),
             top_k=_get_int("TOP_K", 4),
-            data_dir=os.getenv("DATA_DIR", "data"),
+            data_dir=os.getenv("DATA_DIR", "../data_perso"),
         )
 
         # Garde-fou : un recouvrement >= taille de chunk provoquerait une boucle infinie

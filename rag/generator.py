@@ -58,9 +58,13 @@ class MistralGenerator(AnswerGenerator):
         api_key: str,
         model: str = "mistral-small-latest",
         temperature: float = 0.1,
+        system_prompt: str | None = None,
     ) -> None:
         self._client = Mistral(api_key=api_key)
         self._model = model
+        # Permet de changer la consigne (par ex. répondre en anglais pour un
+        # benchmark dont les réponses de référence sont en anglais).
+        self._system_prompt = system_prompt or SYSTEM_PROMPT
         # Température basse : on veut des réponses fidèles aux sources,
         # pas de la créativité.
         self._temperature = temperature
@@ -79,7 +83,7 @@ class MistralGenerator(AnswerGenerator):
                 model=self._model,
                 temperature=self._temperature,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": self._system_prompt},
                     {"role": "user", "content": prompt},
                 ],
             ),

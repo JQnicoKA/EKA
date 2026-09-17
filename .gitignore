@@ -3,3 +3,6 @@ EnterpriseRAG-bench/
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# Documents importés : hors du dépôt, dans ../data_perso
+data/
